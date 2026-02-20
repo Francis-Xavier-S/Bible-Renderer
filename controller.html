@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Director | Pro</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0, viewport-fit=cover">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root { 
+            --accent: #10b981; 
+            --accent-glow: rgba(16, 185, 129, 0.4);
+            --bg: #000000; 
+            --card: #121212; 
+            --border: #2a2a2a; 
+            --text-muted: #888;
+        }
+        
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
+        
+        body { 
+            background: var(--bg); 
+            color: #fff; 
+            font-family: 'Inter', sans-serif; 
+            margin: 0; 
+            height: 100vh; /* Fallback */
+            height: 100dvh; /* Dynamic viewport height for mobile browsers */
+            display: flex; 
+            flex-direction: column; 
+            overflow: hidden; 
+        }
+
+        /* --- HEADER --- */
+        header { 
+            padding: 15px 20px; 
+            background: rgba(18, 18, 18, 0.95); 
+            border-bottom: 1px solid var(--border);
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            flex-shrink: 0;
+            backdrop-filter: blur(10px);
+            z-index: 10;
+        }
+        .brand { font-weight: 800; letter-spacing: -0.5px; font-size: 1.1rem; }
+        .brand span { color: var(--accent); }
+        .status-dot { width: 8px; height: 8px; background: #333; border-radius: 50%; transition: 0.3s; box-shadow: 0 0 5px rgba(255,255,255,0.1); }
+        .status-dot.connected { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+
+        /* --- PREVIEW CARD --- */
+        .preview-section {
+            background: var(--card);
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        .preview-ref { 
+            color: var(--accent); 
+            font-size: 0.8rem; 
+            font-weight: 700; 
+            text-transform: uppercase; 
+            letter-spacing: 1px; 
+            margin-bottom: 5px;
+        }
+        .preview-text { 
+            font-size: 1rem; 
+            color: #ddd; 
+            line-height: 1.4; 
+            white-space: nowrap; 
+            overflow: hidden; 
+            text-overflow: ellipsis; 
+            opacity: 0.8;
+        }
+
+        /* --- TABS --- */
+        .tabs { 
+            display: flex; 
+            padding: 10px 15px 0; 
+            background: var(--bg);
+            gap: 10px;
+            flex-shrink: 0;
+        }
+        .tab-btn { 
+            flex: 1; 
+            padding: 12px; 
+            background: #1a1a1a; 
+            border: 1px solid var(--border); 
+            color: var(--text-muted); 
+            border-radius: 8px 8px 0 0; 
+            font-weight: 600; 
+            font-size: 0.85rem; 
+            border-bottom: none;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .tab-btn.active { 
+            background: var(--bg); 
+            color: #fff; 
+            border-color: var(--accent); 
+            border-bottom: 1px solid var(--bg); /* Hide bottom border to merge with list */
+            position: relative;
+            top: 1px;
+            box-shadow: 0 -4px 10px rgba(16,185,129,0.1);
+        }
+
+        /* --- SEARCH & LIST AREA --- */
+        .list-container { 
+            flex: 1; 
+            display: flex; 
+            flex-direction: column; 
+            background: var(--bg); 
+            border-top: 1px solid var(--accent); /* Matches active tab */
+            overflow: hidden; 
+            position: relative;
+        }
+
+        /* Search Bar */
+        .search-bar {
+            padding: 10px 15px;
+            background: var(--bg);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        .search-input {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid #333;
+            background: #111;
+            color: #fff;
+            font-size: 1rem;
+            font-family: inherit;
+        }
+        .search-input:focus { border-color: var(--accent); }
+
+        /* The Scrollable List */
+        .scroll-area { 
+            flex: 1; 
+            overflow-y: auto; 
+            padding-bottom: 120px; /* Huge padding so items aren't hidden behind floating controls */
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .list-item { 
+            padding: 16px 20px; 
+            border-bottom: 1px solid #1a1a1a; 
+            font-size: 1rem; 
+            color: #bbb; 
+            display: flex; 
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+        .list-item:active { background: #111; }
+        .list-item.selected { 
+            background: rgba(16, 185, 129, 0.08); 
+            color: var(--accent); 
+            font-weight: 700; 
+            border-left: 3px solid var(--accent);
+            padding-left: 17px; /* Compensate for border */
+        }
+        .list-item .chevron { opacity: 0.3; font-size: 0.8rem; }
+
+        /* --- FLOATING CONTROLS --- */
+        .floating-controls {
+            position: absolute;
+            bottom: 25px; /* Raised up from bottom */
+            left: 15px;
+            right: 15px;
+            display: flex;
+            gap: 12px;
+            z-index: 50;
+            padding-bottom: env(safe-area-inset-bottom); /* iPhone home bar safe area */
+        }
+
+        .btn {
+            border: none;
+            border-radius: 12px;
+            font-weight: 800;
+            font-size: 1rem;
+            cursor: pointer;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+            transition: transform 0.1s, opacity 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 60px; /* Big touch targets */
+        }
+        .btn:active { transform: scale(0.96); opacity: 0.9; }
+        
+        .btn-nav { 
+            flex: 1; 
+            background: #222; 
+            color: #fff; 
+            border: 1px solid #333;
+        }
+        .btn-push { 
+            flex: 2; 
+            background: var(--accent); 
+            color: #000; 
+            box-shadow: 0 5px 20px var(--accent-glow);
+            font-size: 1.1rem;
+        }
+
+        /* --- SETTINGS MODAL --- */
+        .modal {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.85); backdrop-filter: blur(5px);
+            z-index: 100; display: none; align-items: center; justify-content: center;
+        }
+        .modal.open { display: flex; }
+        .modal-card {
+            background: #1a1a1a; width: 85%; max-width: 400px;
+            border-radius: 16px; padding: 25px; border: 1px solid #333;
+        }
+        .setting-row { margin-bottom: 20px; }
+        .setting-label { display: block; color: #888; font-size: 0.8rem; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+        input[type="range"] { width: 100%; accent-color: var(--accent); height: 6px; background: #333; border-radius: 3px; }
+        .close-btn { width: 100%; padding: 12px; background: #333; color: #fff; border: none; border-radius: 8px; font-weight: bold; margin-top: 10px; }
+
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="brand">DIRECTOR<span>PRO</span></div>
+    <div id="status-dot" class="status-dot"></div>
+    <div style="font-size:1.2rem; cursor:pointer;" onclick="toggleSettings()">⚙️</div>
+</header>
+
+<div class="preview-section">
+    <div class="preview-ref" id="p-ref">READY</div>
+    <div class="preview-text" id="p-text">Select a scripture to begin...</div>
+</div>
+
+<div class="tabs">
+    <button class="tab-btn active" id="tab-book" onclick="setTab('book')">BOOK</button>
+    <button class="tab-btn" id="tab-chap" onclick="setTab('chap')">CH</button>
+    <button class="tab-btn" id="tab-verse" onclick="setTab('verse')">VS</button>
+</div>
+
+<div class="list-container">
+    <div class="search-bar" id="search-container">
+        <input type="text" class="search-input" id="search-input" placeholder="Search Books..." onkeyup="filterBooks()">
+    </div>
+    
+    <div class="scroll-area" id="list-content">
+        </div>
+</div>
+
+<div class="floating-controls">
+    <button class="btn btn-nav" onclick="step(-1)">PREV</button>
+    <button class="btn btn-push" onclick="pushLive()">PUSH LIVE</button>
+    <button class="btn btn-nav" onclick="step(1)">NEXT</button>
+</div>
+
+<div class="modal" id="settings-modal">
+    <div class="modal-card">
+        <h3 style="margin-top:0">Settings</h3>
+        <div class="setting-row">
+            <span class="setting-label">Font Size</span>
+            <input type="range" id="s-size" min="2" max="10" step="0.5" value="5" oninput="syncLive()">
+        </div>
+        <div class="setting-row">
+            <span class="setting-label">Color Theme</span>
+            <input type="color" id="s-color" value="#10b981" style="width:100%; height:40px; border:none; background:none;" onchange="syncLive()">
+        </div>
+        <div class="setting-row" style="display:flex; justify-content:space-between; align-items:center;">
+            <span class="setting-label" style="margin:0">Background Music</span>
+            <input type="checkbox" id="s-music" style="width:20px; height:20px; accent-color:var(--accent);" onchange="syncLive()">
+        </div>
+        <button class="close-btn" onclick="toggleSettings()">DONE</button>
+    </div>
+</div>
+
+<script>
+    const socket = io();
+    
+    // --- DATA ---
+    const BOOKS_DATA = {"Genesis":50,"Exodus":40,"Leviticus":27,"Numbers":36,"Deuteronomy":34,"Joshua":24,"Judges":21,"Ruth":4,"1 Samuel":31,"2 Samuel":24,"1 Kings":22,"2 Kings":25,"1 Chronicles":29,"2 Chronicles":36,"Ezra":10,"Nehemiah":13,"Esther":10,"Job":42,"Psalms":150,"Proverbs":31,"Ecclesiastes":12,"Song of Solomon":8,"Isaiah":66,"Jeremiah":52,"Lamentations":5,"Ezekiel":48,"Daniel":12,"Hosea":14,"Joel":3,"Amos":9,"Obadiah":1,"Jonah":4,"Micah":7,"Nahum":3,"Habakkuk":3,"Zephaniah":3,"Haggai":2,"Zechariah":14,"Malachi":4,"Matthew":28,"Mark":16,"Luke":24,"John":21,"Acts":28,"Romans":16,"1 Corinthians":16,"2 Corinthians":13,"Galatians":6,"Ephesians":6,"Philippians":4,"Colossians":4,"1 Thessalonians":5,"2 Thessalonians":3,"1 Timothy":6,"2 Timothy":4,"Titus":3,"Philemon":1,"Hebrews":13,"James":5,"1 Peter":5,"2 Peter":3,"1 John":5,"2 John":1,"3 John":1,"Jude":1,"Revelation":22};
+    const BOOKS_LIST = Object.keys(BOOKS_DATA);
+
+    // --- STATE ---
+    let state = { book: "John", chap: 3, verse: 16, text: "" };
+    let currentTab = "book";
+
+    // --- SOCKETS ---
+    socket.on('connect', () => document.getElementById('status-dot').classList.add('connected'));
+    socket.on('disconnect', () => document.getElementById('status-dot').classList.remove('connected'));
+
+    // --- RENDER LOGIC ---
+    function init() {
+        renderList();
+        fetchPreview();
+    }
+
+    function setTab(tab) {
+        currentTab = tab;
+        // Update UI Tabs
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById(`tab-${tab}`).classList.add('active');
+        
+        // Show/Hide Search
+        const searchContainer = document.getElementById('search-container');
+        searchContainer.style.display = (tab === 'book') ? 'block' : 'none';
+
+        renderList();
+    }
+
+    function renderList() {
+        const container = document.getElementById('list-content');
+        container.innerHTML = '';
+
+        if(currentTab === 'book') {
+            const filter = document.getElementById('search-input').value.toLowerCase();
+            BOOKS_LIST.forEach(b => {
+                if(b.toLowerCase().includes(filter)) {
+                    createItem(container, b, state.book === b, () => selectBook(b));
+                }
+            });
+        } 
+        else if(currentTab === 'chap') {
+            const max = BOOKS_DATA[state.book] || 50;
+            for(let i=1; i<=max; i++) {
+                createItem(container, `Chapter ${i}`, state.chap == i, () => selectChap(i));
+            }
+        } 
+        else if(currentTab === 'verse') {
+            // Rendering up to 176 (Psalm 119) safely
+            for(let i=1; i<=176; i++) {
+                createItem(container, `Verse ${i}`, state.verse == i, () => selectVerse(i));
+            }
+        }
+    }
+
+    function createItem(parent, text, isActive, onClick) {
+        const div = document.createElement('div');
+        div.className = `list-item ${isActive ? 'selected' : ''}`;
+        div.innerHTML = `<span>${text}</span> <span class="chevron">›</span>`;
+        div.onclick = onClick;
+        // Auto scroll to active element
+        if(isActive) setTimeout(() => div.scrollIntoView({block: 'center', behavior: 'auto'}), 0);
+        parent.appendChild(div);
+    }
+
+    // --- SELECTION LOGIC ---
+    function selectBook(b) {
+        state.book = b; state.chap = 1; state.verse = 1;
+        document.getElementById('search-input').value = ''; // Reset search
+        setTab('chap');
+        updatePreviewHeader();
+    }
+
+    function selectChap(c) {
+        state.chap = c; state.verse = 1;
+        setTab('verse');
+        updatePreviewHeader();
+    }
+
+    function selectVerse(v) {
+        state.verse = v;
+        renderList(); // Re-render to highlight selection
+        fetchPreview();
+    }
+
+    function filterBooks() {
+        if(currentTab === 'book') renderList();
+    }
+
+    // --- API & SYNC ---
+    function updatePreviewHeader() {
+        document.getElementById('p-ref').innerText = `${state.book} ${state.chap}:${state.verse}`;
+    }
+
+    async function fetchPreview() {
+        updatePreviewHeader();
+        const pText = document.getElementById('p-text');
+        pText.style.opacity = 0.5;
+        pText.innerText = "Loading...";
+
+        try {
+            const cleanBook = encodeURIComponent(state.book);
+            const res = await fetch(`https://bible-api.com/${cleanBook}+${state.chap}:${state.verse}`);
+            const data = await res.json();
+            
+            if(data.text) {
+                state.text = data.text.trim().replace(/\n/g, ' ');
+                pText.innerText = state.text;
+            } else {
+                pText.innerText = "Text not found.";
+            }
+        } catch(e) {
+            pText.innerText = "Offline / Error";
+        }
+        pText.style.opacity = 1;
+    }
+
+    function step(dir) {
+        state.verse += dir;
+        if(state.verse < 1) {
+            state.verse = 1; // Simplification: don't handle chapter rollback logic for now
+        }
+        if(currentTab === 'verse') renderList();
+        fetchPreview();
+    }
+
+    function pushLive() {
+        socket.emit('update', {
+            text: state.text,
+            book: state.book,
+            chapter: state.chap,
+            verse: state.verse,
+            size: document.getElementById('s-size').value,
+            color: document.getElementById('s-color').value,
+            music: document.getElementById('s-music').checked
+        });
+        
+        // Visual feedback
+        const btn = document.querySelector('.btn-push');
+        const orig = btn.innerText;
+        btn.innerText = "SENT!";
+        btn.style.background = "#fff";
+        setTimeout(() => { 
+            btn.innerText = orig; 
+            btn.style.background = "var(--accent)";
+        }, 500);
+    }
+
+    function syncLive() {
+        // Just updates settings without changing text
+        socket.emit('update', {
+            size: document.getElementById('s-size').value,
+            color: document.getElementById('s-color').value,
+            music: document.getElementById('s-music').checked
+        });
+    }
+
+    // --- SETTINGS ---
+    function toggleSettings() {
+        const m = document.getElementById('settings-modal');
+        m.classList.toggle('open');
+    }
+
+    // Start
+    init();
+
+</script>
+</body>
+</html>

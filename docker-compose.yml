@@ -1,0 +1,9 @@
+version: "3.8"
+
+services:
+  cinematic-server:
+    build: .
+    container_name: cinematic-server
+    ports:
+      - "1820:1820"
+    restart: unless-stopped

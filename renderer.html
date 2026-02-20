@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Cinematic Renderer</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+    <style>
+        :root { --theme: #10b981; --size: 4rem; }
+        body, html { margin: 0; padding: 0; background: #000; color: #fff; height: 100vh; overflow: hidden; font-family: 'Playfair Display', serif; }
+        
+        /* 1. Background Layers */
+        .stage { position: fixed; inset: 0; z-index: 1; }
+        
+        /* Moving Aurora Blobs */
+        .blob-cont { position: absolute; inset: 0; filter: blur(80px); opacity: 0.4; animation: pulseLight 10s infinite alternate; }
+        .blob { position: absolute; border-radius: 50%; background: var(--theme); mix-blend-mode: screen; transition: background 2s; }
+        .b1 { width: 60vw; height: 60vw; top: -20%; left: -20%; animation: float 25s infinite alternate linear; }
+        .b2 { width: 50vw; height: 50vw; bottom: -20%; right: -20%; background: #224488; animation: float 30s infinite alternate-reverse linear; }
+        .b3 { width: 30vw; height: 30vw; top: 40%; left: 40%; background: #442288; animation: float 20s infinite alternate linear; }
+
+        @keyframes float { from { transform: translate(0,0) rotate(0deg); } to { transform: translate(100px, 50px) rotate(20deg); } }
+        @keyframes pulseLight { from { opacity: 0.3; } to { opacity: 0.6; } }
+
+        /* Noise Texture for Film Grain */
+        .noise { position: fixed; inset: 0; background: url('https://grainy-gradients.vercel.app/noise.svg'); opacity: 0.05; pointer-events: none; z-index: 50; }
+        
+        /* Vignette */
+        .vignette { position: fixed; inset: 0; background: radial-gradient(circle, transparent 40%, #000 120%); z-index: 2; pointer-events: none; }
+
+        /* 2. Particle Canvas */
+        #particle-canvas { position: fixed; inset: 0; z-index: 3; pointer-events: none; }
+
+        /* 3. Text Content */
+        .content-layer { 
+            position: relative; z-index: 10; height: 100vh; display: flex; flex-direction: column; 
+            justify-content: center; align-items: center; text-align: center; padding: 0 10%;
+        }
+
+        .verse-container { 
+            font-size: var(--size); line-height: 1.4; font-weight: 400; 
+            text-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            perspective: 1000px;
+        }
+
+        /* Staggered Word Animation Classes */
+        .word { display: inline-block; opacity: 0; filter: blur(10px); transform: translateY(30px) translateZ(-50px); transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1); margin-right: 0.25em; will-change: transform, opacity, filter; }
+        .word.in { opacity: 1; filter: blur(0); transform: translateY(0) translateZ(0); }
+
+        .ref { 
+            margin-top: 40px; font-family: 'Cinzel', serif; font-size: calc(var(--size) * 0.3); 
+            letter-spacing: 0.2em; color: rgba(255,255,255,0.6); text-transform: uppercase;
+            border-top: 1px solid rgba(255,255,255,0.2); padding-top: 20px;
+            opacity: 0; transform: translateY(20px); transition: all 1s ease 1s;
+        }
+        .ref.show { opacity: 1; transform: translateY(0); }
+
+    </style>
+</head>
+<body>
+
+    <div class="stage">
+        <div class="blob-cont">
+            <div class="blob b1"></div>
+            <div class="blob b2"></div>
+            <div class="blob b3"></div>
+        </div>
+    </div>
+    <div class="vignette"></div>
+    <div class="noise"></div>
+    <canvas id="particle-canvas"></canvas>
+
+    <div class="content-layer">
+        <div class="verse-container" id="text-area"></div>
+        <div class="ref" id="ref-area"></div>
+    </div>
+
+    <audio id="bg-music" loop src="https://cdn.pixabay.com/audio/2022/08/23/audio_d167b0b14b.mp3"></audio>
+
+<script>
+    const socket = io();
+
+    // --- Particle System ---
+    const canvas = document.getElementById('particle-canvas');
+    const ctx = canvas.getContext('2d');
+    let width, height;
+    let particles = [];
+
+    function resize() { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; }
+    window.addEventListener('resize', resize);
+    resize();
+
+    class Particle {
+        constructor() {
+            this.x = Math.random() * width;
+            this.y = Math.random() * height;
+            this.vx = (Math.random() - 0.5) * 0.5; // Slow movement
+            this.vy = (Math.random() - 0.5) * 0.5;
+            this.size = Math.random() * 2;
+            this.alpha = Math.random() * 0.5 + 0.1;
+        }
+        update() {
+            this.x += this.vx; this.y += this.vy;
+            if(this.x < 0) this.x = width; if(this.x > width) this.x = 0;
+            if(this.y < 0) this.y = height; if(this.y > height) this.y = 0;
+        }
+        draw() {
+            ctx.fillStyle = `rgba(255, 255, 255, ${this.alpha})`;
+            ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI*2); ctx.fill();
+        }
+    }
+
+    for(let i=0; i<60; i++) particles.push(new Particle()); // Create 60 particles
+
+    function animateParticles() {
+        ctx.clearRect(0,0,width,height);
+        particles.forEach(p => { p.update(); p.draw(); });
+        requestAnimationFrame(animateParticles);
+    }
+    animateParticles();
+
+    // --- Text Animation Logic ---
+    let currentData = {};
+
+    socket.on('sync', data => {
+        // Sync theme immediately
+        document.documentElement.style.setProperty('--theme', data.color);
+        document.documentElement.style.setProperty('--size', data.size + 'rem');
+        
+        // Handle Audio
+        const audio = document.getElementById('bg-music');
+        if(data.music) { audio.volume = 0.5; audio.play().catch(e=>0); } 
+        else { audio.pause(); }
+
+        // Only redraw text if it changed
+        if(data.text !== currentData.text || data.book !== currentData.book || data.verse !== currentData.verse) {
+            updateText(data);
+            currentData = data;
+        }
+    });
+
+    function updateText(data) {
+        const tArea = document.getElementById('text-area');
+        const rArea = document.getElementById('ref-area');
+
+        // 1. Exit Animation (Fade out existing)
+        const oldWords = document.querySelectorAll('.word');
+        oldWords.forEach((w, i) => {
+            w.style.transitionDelay = '0s';
+            w.classList.remove('in');
+        });
+        rArea.classList.remove('show');
+
+        // 2. Wait for exit, then swap text
+        setTimeout(() => {
+            // Split text into words for span-wrapping
+            const words = data.text.split(' ');
+            tArea.innerHTML = words.map((w, i) => `<span class="word" style="transition-delay: ${i * 0.04}s">${w}</span>`).join(' ');
+            rArea.innerText = `${data.book} ${data.chapter}:${data.verse}`;
+
+            // Force reflow
+            void tArea.offsetWidth;
+
+            // 3. Enter Animation (Add 'in' class)
+            requestAnimationFrame(() => {
+                document.querySelectorAll('.word').forEach(w => w.classList.add('in'));
+                rArea.classList.add('show');
+            });
+
+        }, 600); // Wait 600ms for exit to clear
+    }
+</script>
+</body>
+</html>
